@@ -57,7 +57,7 @@ PY
 
 run_mode() {
   local mode="$1" elementfs="$2"
-  echo "== 模式 $mode（元素全屏=$elementfs）"
+  echo "== 模式 ${mode}（元素全屏=${elementfs}）"
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
   sleep 2
   local before
@@ -79,7 +79,7 @@ run_mode() {
   local a b
   a=$(colorful "$OUT/${mode}-1-fullscreen.png")
   b=$(colorful "$OUT/${mode}-2-landscape.png")
-  echo "  画面彩色像素比例：全屏 $a，横屏 $b"
+  echo "  画面彩色像素比例：全屏 ${a}，横屏 $b"
   echo "$mode $a $b" >> "$OUT/result.txt"
 }
 
@@ -89,6 +89,6 @@ run_mode native NO     # 新版行为（原生视频全屏），必须有画面
 xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
 
 read -r _ na nb < <(grep '^native' "$OUT/result.txt")
-python3 -c "import sys; sys.exit(0 if float('$nb') >= 0.08 and float('$na') >= 0.08 else 1)" \
+python3 -c "import sys; sys.exit(0 if float('${nb}') >= 0.08 and float('${na}') >= 0.08 else 1)" \
   && echo "  ✓ 原生全屏 + 横屏有画面" \
-  || { echo "::error::原生全屏/横屏后看不到画面（彩色比例 全屏 $na / 横屏 $nb）"; exit 1; }
+  || { echo "::error::原生全屏/横屏后看不到画面（彩色比例 全屏 $na / 横屏 ${nb}）"; exit 1; }
