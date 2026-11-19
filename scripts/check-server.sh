@@ -36,7 +36,7 @@ code=$(curl -sS -m 60 -b "$JAR" -o /tmp/ltv-proxy.txt -w '%{http_code}' "$BASE/a
 # SSRF 防护仍然有效：代理不能访问本机
 target=$(python3 -c 'import urllib.parse;print(urllib.parse.quote("http://127.0.0.1:38080/api/status", safe=""))')
 code=$(curl -sS -m 30 -b "$JAR" -o /tmp/ltv-ssrf.txt -w '%{http_code}' "$BASE/api/proxy/$target")
-[ "$code" != 200 ] && ok "SSRF 防护拦截本机地址（$code）" || bad "SSRF 防护失效：代理访问到了本机"
+[ "$code" != 200 ] && ok "SSRF 防护拦截本机地址（${code}）" || bad "SSRF 防护失效：代理访问到了本机"
 
 # 豆瓣在海外机房可能被限流，只提示不判失败
 code=$(curl -sS -m 60 -b "$JAR" -o /tmp/ltv-db.json -w '%{http_code}' "$BASE/api/douban?type=movie&tag=%E7%83%AD%E9%97%A8&page_limit=4&page_start=0")
