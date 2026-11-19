@@ -1,0 +1,131 @@
+name: 构建 iOS 安装包
+
+# push 到 main：构建 + 测试，IPA 作为 artifact
+# 推 v* tag：同上，并把 IPA 发到 Releases
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_MOBILE_VERSION: v18.20.4
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: libretv/package-lock.json
+
+      - name: 上游单元测试
+        working-directory: libretv
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
+      - name: 构建 App 内置的 LibreTV 服务端
+        run: scripts/build-node-bundle.sh
+
+      # nodejs-mobile 是 Node 18，且 iOS 上只能 --jitless（没有 WebAssembly）；先在同样条件下跑一遍
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.20.4
+
+      - name: Node 18 + jitless 测试（模拟 iOS 运行条件）
+        run: |
+          node --version
+          node --jitless nodejs/test/fetch-shim.test.js
+          T=$(mktemp -d); cp -R ios/nodejs-project/. "$T/"
+          (cd "$T" && PASSWORD=ci-pass nohup node --jitless main.js > "$T/server.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:38080/api/status >/dev/null && break; sleep 1; done
+          set +e
+          scripts/check-server.sh http://127.0.0.1:38080 ci-pass; rc=$?
+          set -e
+          echo "--- server.log"; tail -40 "$T/server.log"
+          pkill -f next-server || true
+          pkill -f "jitless main.js" || true
+          sleep 2
+          exit $rc
+
+      - name: 下载 nodejs-mobile
+        run: |
+          curl -fsSL -o nm.zip "https://github.com/nodejs-mobile/nodejs-mobile/releases/download/${NODE_MOBILE_VERSION}/nodejs-mobile-${NODE_MOBILE_VERSION}-ios.zip"
+          unzip -q nm.zip -d nm
+          mkdir -p ios/Frameworks
+          cp -R nm/NodeMobile.xcframework ios/Frameworks/
+
+      - name: 生成 Xcode 工程
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+          cd ios
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \"1\"/CURRENT_PROJECT_VERSION: \"${GITHUB_RUN_NUMBER}\"/" project.yml
+          xcodegen generate
+
+      - name: 构建模拟器版
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/LibreTV.xcodeproj -scheme LibreTV -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build | tail -40
+
+      - name: 模拟器实测（启动内置服务、出网、切后台恢复、截图）
+        run: scripts/simulator-test.sh build/sim/Build/Products/Release-iphonesimulator/LibreTV.app sim-out
+
+      - name: 构建真机版（未签名）
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/LibreTV.xcodeproj -scheme LibreTV -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+
+      - name: 打包 IPA 并检查结构
+        run: |
+          VERSION=$(node -p "require('./libretv/package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          scripts/package-ipa.sh build/device/Build/Products/Release-iphoneos/LibreTV.app "dist/LibreTV-${VERSION}.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LibreTV-ipa
+          path: dist/*.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-screenshots-and-logs
+          path: sim-out/
+          if-no-files-found: ignore
+
+      - name: 发布到 Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          LibreTV ${VERSION} 的 iPhone 自签版（未签名 IPA，构建号 ${GITHUB_RUN_NUMBER}）。
+
+          **安装**：下载下面的 \`LibreTV-${VERSION}.ipa\`，用全能签等自签工具签名安装。
+
+          - 服务端在手机本机运行（127.0.0.1），不需要另外部署服务器，也不需要输入访问密码。
+          - App 不内置任何视频源：打开后到「设置 → 源管理」自己添加。
+          - 基于 [LibreSpark/LibreTV](https://github.com/LibreSpark/LibreTV)（AGPL-3.0），本仓库的修改与构建脚本同样以 AGPL-3.0 开源。
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/*.ipa --title "LibreTV iOS ${VERSION}（构建 ${GITHUB_RUN_NUMBER}）" --notes-file notes.md

@@ -1,0 +1,11 @@
+node_modules/
+.next/
+ios/nodejs-project/
+ios/Frameworks/
+ios/*.xcodeproj/
+build/
+dist/
+sim-out/
+nm/
+nm.zip
+.DS_Store
