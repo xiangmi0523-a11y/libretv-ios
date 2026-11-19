@@ -64,10 +64,10 @@ function buildConnector(options) {
     try {
       if (protocol === 'https:') {
         const servername = opts.servername || (net.isIP(hostname) ? undefined : hostname);
-        socket = tls.connect({ host: hostname, port, servername, lookup, ALPNProtocols: ['http/1.1'] });
+        socket = tls.connect({ host: hostname, port, servername, lookup, autoSelectFamily: true, ALPNProtocols: ['http/1.1'] });
         socket.once('secureConnect', () => finish(null, socket));
       } else {
-        socket = net.connect({ host: hostname, port, lookup });
+        socket = net.connect({ host: hostname, port, lookup, autoSelectFamily: true });
         socket.once('connect', () => finish(null, socket));
       }
     } catch (e) {
@@ -169,6 +169,8 @@ function requestOnce(urlObj, method, headers, body, signal, dispatcher) {
       path: (urlObj.pathname || '/') + (urlObj.search || ''),
       method,
       headers: outHeaders,
+      // 域名同时有 IPv4/IPv6 时并行尝试（Happy Eyeballs），避免手机网络 IPv6 不通时卡住
+      autoSelectFamily: true,
     };
     if (dispatcher && typeof dispatcher.connect === 'function') {
       // 不设 agent（undefined）时 ClientRequest 才会使用 createConnection；agent:false 会新建默认 Agent

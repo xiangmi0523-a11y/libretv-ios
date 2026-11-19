@@ -37,6 +37,9 @@ if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any !== 'function')
   };
 }
 
+// 双栈网络下优先能连通的地址族（Node 18.18+）
+try { require('net').setDefaultAutoSelectFamily(true); } catch (_) { /* 旧版本忽略 */ }
+
 let mainServer = null;
 const origCreateServer = http.createServer;
 http.createServer = function patchedCreateServer(...args) {

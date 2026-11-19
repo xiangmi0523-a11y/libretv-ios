@@ -25,7 +25,7 @@ const server = http.createServer((req, res) => {
 });
 
 (async () => {
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  await new Promise((r) => server.listen(0, r)); // 双栈监听，localhost 解析到 ::1 或 127.0.0.1 都能连
   const base = 'http://127.0.0.1:' + server.address().port;
   let r = await fetch(base + '/json');
   assert.strictEqual(r.status, 200);
