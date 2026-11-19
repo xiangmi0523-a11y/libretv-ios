@@ -51,6 +51,9 @@ final class WebViewController: UIViewController {
     }
 
     private func loadApp() {
+        if let testURL = TestHooks.pageURL {
+            webView.load(URLRequest(url: testURL)); hasLoadedOnce = true; return
+        }
         let store = webView.configuration.websiteDataStore.httpCookieStore
         guard let cookie = NodeRunner.shared.makeSessionCookie() else {
             webView.load(URLRequest(url: NodeRunner.baseURL)); return
@@ -76,8 +79,11 @@ final class WebViewController: UIViewController {
         config.allowsAirPlayForMediaPlayback = true
         config.websiteDataStore = .default()
         config.applicationNameForUserAgent = "Mobile/15E148 LibreTV-iOS"
+        // 不开启「元素全屏」：iPhone 上 WKWebView 的元素全屏在横屏时会丢失视频画面（只剩声音）。
+        // 关掉后播放器的全屏按钮走 iOS 原生视频全屏（video.webkitEnterFullscreen），
+        // 横竖屏旋转、画中画、隔空播放都由系统播放器处理。
         if #available(iOS 16.4, *) {
-            config.preferences.isElementFullscreenEnabled = true
+            config.preferences.isElementFullscreenEnabled = TestHooks.elementFullscreen
         }
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
 
@@ -234,6 +240,24 @@ final class WebViewController: UIViewController {
         return vc
     }
 
+    /// 仅供 CI 模拟器测试（scripts/fullscreen-test.sh）：起播后进全屏，再转横屏
+    private func runFullscreenTest() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self else { return }
+            self.webView.evaluateJavaScript("window.ltvTestEnterFullscreen && window.ltvTestEnterFullscreen()") { _, error in
+                if let error { NSLog("[ltv-test] enter fullscreen: \(error)") }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let scene = self?.view.window?.windowScene else { return }
+                if #available(iOS 16.0, *) {
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { error in
+                        NSLog("[ltv-test] rotate: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
     private static func isLocal(_ url: URL) -> Bool {
         (url.host == NodeRunner.host || url.host == "localhost") && (url.port ?? 80) == NodeRunner.port
     }
@@ -247,7 +271,7 @@ extension WebViewController: WKNavigationDelegate {
         guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { decisionHandler(.allow); return }
 
         if ["blob", "data", "about", "javascript"].contains(scheme) { decisionHandler(.allow); return }
-        if WebViewController.isLocal(url) { decisionHandler(.allow); return }
+        if WebViewController.isLocal(url) || TestHooks.isTestURL(url) { decisionHandler(.allow); return }
 
         let isMainFrame = action.targetFrame?.isMainFrame ?? true
         if scheme == "http" || scheme == "https" {
@@ -284,6 +308,10 @@ extension WebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         lastLoadFailed = false
         if webView.url.map(WebViewController.isLocal) == true { hideSplash() }
+        if let url = webView.url, TestHooks.isTestURL(url) {
+            hideSplash()
+            if TestHooks.fullscreenTest { runFullscreenTest() }
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

@@ -93,6 +93,12 @@ jobs:
       - name: 模拟器实测（启动内置服务、出网、切后台恢复、截图）
         run: scripts/simulator-test.sh build/sim/Build/Products/Release-iphonesimulator/LibreTV.app sim-out
 
+      - name: 模拟器实测全屏横屏（hls.js 播放 → 全屏 → 横屏，截图检查有画面）
+        run: |
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          python3 -m pip install --quiet --break-system-packages pillow || python3 -m pip install --quiet --user pillow
+          scripts/fullscreen-test.sh build/sim/Build/Products/Release-iphonesimulator/LibreTV.app sim-out
+
       - name: 构建真机版（未签名）
         run: |
           set -o pipefail
