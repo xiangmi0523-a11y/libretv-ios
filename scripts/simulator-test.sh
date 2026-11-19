@@ -47,7 +47,22 @@ for i in $(seq 1 180); do
 done
 [ "$ready" = 1 ] || { echo "::error::App 内服务 180 秒内没有启动"; exit 1; }
 
-PASS=$(xcrun simctl spawn "$UDID" defaults read "$BUNDLE_ID" ltv.local.password)
+# App 首次启动时随机生成本地密码存进 UserDefaults；偏好可能稍后才落盘，多试几次
+read_pass() {
+  local plist="$DATA/Library/Preferences/$BUNDLE_ID.plist"
+  if [ -f "$plist" ]; then
+    python3 -c 'import plistlib,sys;print(plistlib.load(open(sys.argv[1],"rb")).get("ltv.local.password",""))' "$plist" 2>/dev/null
+    return
+  fi
+  xcrun simctl spawn "$UDID" defaults read "$plist" ltv.local.password 2>/dev/null || true
+}
+PASS=""
+for i in $(seq 1 60); do
+  PASS=$(read_pass)
+  [ -n "$PASS" ] && break
+  sleep 1
+done
+[ -n "$PASS" ] || { echo "::error::读不到 App 生成的本地密码"; ls -la "$DATA/Library/Preferences" || true; exit 1; }
 "$(dirname "$0")/check-server.sh" "$BASE" "$PASS"
 
 # 等网页渲染完再截图
