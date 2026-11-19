@@ -41,6 +41,10 @@ if grep -l "WebAssembly" "$OUT"/.next/server/chunks/*.js 2>/dev/null | grep -q .
   grep -l "WebAssembly" "$OUT"/.next/server/chunks/*.js
   exit 1
 fi
+# iOS 上的 nodejs-mobile 没有 ICU：把 \p{…} 这类 Unicode 属性正则展开成显式字符区间
+(cd "$ROOT/scripts/tools" && npm ci --no-audit --no-fund)
+node "$ROOT/scripts/tools/patch-no-icu.js" "$OUT"
+
 test -f "$OUT/.next/BUILD_ID"
 test -f "$OUT/server.js"
 

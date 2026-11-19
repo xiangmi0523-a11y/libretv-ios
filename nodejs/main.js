@@ -37,6 +37,37 @@ if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any !== 'function')
   };
 }
 
+// nodejs-mobile 编译时没有 ICU：TextDecoder 不支持 { fatal: true }（会抛 ERR_NO_ICU），
+// 而 Next.js 的流式渲染会这样创建解码器。去掉 fatal（只影响非法 UTF-8 时是报错还是替换成 U+FFFD）。
+function needsTextDecoderPatch() {
+  if (process.env.LTV_FORCE_NO_ICU_PATCH === '1') return true;
+  if (process.versions.icu || typeof TextDecoder !== 'function') return false;
+  try { new TextDecoder('utf-8', { fatal: true }); return false; } catch (_) { return true; }
+}
+if (needsTextDecoderPatch()) {
+  const stripFatal = (options) => {
+    if (!options || typeof options !== 'object' || !options.fatal) return options;
+    const o = Object.assign({}, options);
+    delete o.fatal;
+    return o;
+  };
+  const OrigTextDecoder = globalThis.TextDecoder;
+  class TextDecoder extends OrigTextDecoder {
+    constructor(encoding = 'utf-8', options) { super(encoding, stripFatal(options)); }
+  }
+  globalThis.TextDecoder = TextDecoder;
+  try { require('util').TextDecoder = TextDecoder; } catch (_) { /* 忽略 */ }
+  const OrigTDS = globalThis.TextDecoderStream;
+  if (typeof OrigTDS === 'function') {
+    class TextDecoderStream extends OrigTDS {
+      constructor(encoding = 'utf-8', options) { super(encoding, stripFatal(options)); }
+    }
+    globalThis.TextDecoderStream = TextDecoderStream;
+    try { require('stream/web').TextDecoderStream = TextDecoderStream; } catch (_) { /* 忽略 */ }
+  }
+  console.log('[libretv-ios] 无 ICU：已为 TextDecoder 去掉 fatal 选项');
+}
+
 // 双栈网络下优先能连通的地址族（Node 18.18+）
 try { require('net').setDefaultAutoSelectFamily(true); } catch (_) { /* 旧版本忽略 */ }
 

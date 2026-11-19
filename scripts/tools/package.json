@@ -1,0 +1,8 @@
+{
+  "name": "libretv-ios-build-tools",
+  "private": true,
+  "description": "构建期工具：把服务端代码里的 Unicode 属性正则转成显式字符区间（iOS 上的 Node 没有 ICU）",
+  "dependencies": {
+    "regexpu-core": "6.2.0"
+  }
+}
